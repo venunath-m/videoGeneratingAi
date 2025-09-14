@@ -70,3 +70,15 @@ Prompt matching → pick segments
 Clip extraction → FFmpeg/MoviePy
 
 Show or save clips in clips/
+structure of flutter app
+lib/
+ ├─ main.dart
+ ├─ screens/
+ │   ├─ upload_screen.dart
+ │   ├─ video_list_screen.dart
+ ├─ services/
+ │   ├─ video_service.dart
+ ├─ models/
+ │   ├─ video_model.dart
+ └─ widgets/
+     ├─ custom_button.dart
