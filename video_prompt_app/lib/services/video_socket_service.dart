@@ -1,12 +1,18 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/foundation.dart';
+import '../models/video_model.dart';
+import 'video_service.dart';
 
 class VideoSocketService extends ChangeNotifier {
   late IO.Socket socket;
 
   int current = 0;
   int total = 0;
-  List<String> clips = [];
+  List<String> clips = []; // live clip paths
+
+  final VideoService videoService;
+
+  VideoSocketService(this.videoService);
 
   void connect() {
     socket = IO.io("http://localhost:3000", <String, dynamic>{
@@ -14,18 +20,42 @@ class VideoSocketService extends ChangeNotifier {
       'autoConnect': true,
     });
 
-    socket.onConnect((_) => print("Connected to server"));
+    socket.onConnect((_) => print("✅ Connected to server"));
 
-    socket.on("event-progress", (data) {
+    // Listen for event generation updates
+    socket.on("event-generated", (data) {
       current = data['current'] ?? 0;
       total = data['total'] ?? 0;
-      String clipPath = data['clipPath'] ?? '';
-      if (clipPath.isNotEmpty) clips.add(clipPath);
+
+      final clipPath = data['clipPath'] ?? '';
+      final thumbPath = data['thumbPath'] ?? '';
+      final gifPath = data['gifPath'] ?? '';
+
+      if (clipPath.isNotEmpty && videoService.videos.isNotEmpty) {
+        final video = videoService.videos.last;
+
+        // Store clip path
+        video.eventClipPaths ??= [];
+        video.eventClipPaths!.add(clipPath);
+        clips.add(clipPath); // for live list
+
+        // Store thumbnail path
+        if (thumbPath.isNotEmpty) {
+          video.eventClipThumbs ??= [];
+          video.eventClipThumbs!.add(thumbPath);
+        }
+
+        // Store GIF path
+        if (gifPath.isNotEmpty) {
+          video.eventClipGifs ??= [];
+          video.eventClipGifs!.add(gifPath);
+        }
+      }
 
       notifyListeners();
     });
 
-    socket.onDisconnect((_) => print("Disconnected from server"));
+    socket.onDisconnect((_) => print("❌ Disconnected from server"));
   }
 
   void disconnect() {
@@ -33,6 +63,12 @@ class VideoSocketService extends ChangeNotifier {
   }
 
   void extractEvents(String videoPath) {
+    // Reset progress & clips
+    clips.clear();
+    current = 0;
+    total = 0;
+    notifyListeners();
+
     socket.emit("extract-events", {"videoPath": videoPath});
   }
 

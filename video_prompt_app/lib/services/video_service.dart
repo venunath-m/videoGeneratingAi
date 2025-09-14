@@ -10,7 +10,13 @@ class VideoService {
   void addVideo(VideoModel video) {
     _videos.add(video);
   }
+ void attachEventClip(String clipPath) {
+    if (_videos.isEmpty) return;
+    final latestVideo = _videos.last;
 
+    latestVideo.eventClipPaths ??= [];
+    latestVideo.eventClipPaths!.add(clipPath);
+  }
   /// Get bytes for a file path (web)
   Uint8List? getBytesFromPath(String path) {
     final video = _videos.firstWhere(
