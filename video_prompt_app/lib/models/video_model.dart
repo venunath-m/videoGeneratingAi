@@ -25,18 +25,22 @@ class VideoModel {
   Uint8List? thumbnailBytes;
   String? gifPath;
   Uint8List? gifBytes;
-  
 
   // Resolutions
   List<String>? resolutionPaths; // server-generated resolutions
   Map<String, Uint8List>? resolutionBytes; // key = path, value = bytes (web)
 
-  // ------------------- NEW: Event Clips -------------------
+  // Event Clips
   List<String>? eventClipPaths; // server-generated clips (mobile/desktop)
   Map<String, Uint8List>? eventClipBytes; // key = path, value = bytes (web)
- 
   List<String>? eventClipThumbs;
   List<String>? eventClipGifs;
+
+  String? shortVideoPath;       // server path
+  Uint8List? shortVideoBytes;
+
+  // ------------------- NEW: SHORT PROGRESS -------------------
+  Map<String, double>? shortProgress; // key = short index or name, value = progress %
 
   final DateTime uploadedAt;
 
@@ -62,7 +66,10 @@ class VideoModel {
     this.eventClipPaths,
     this.eventClipBytes,
     this.eventClipThumbs,
-    this.eventClipGifs,    
+    this.eventClipGifs,
+    this.shortVideoPath,
+    this.shortVideoBytes,
+    this.shortProgress,      // add here
     required this.uploadedAt,
   });
 
@@ -78,9 +85,12 @@ class VideoModel {
         'thumbnailPath': thumbnailPath,
         'gifPath': gifPath,
         'resolutionPaths': resolutionPaths,
-        'eventClipPaths': eventClipPaths, // include new parameter
+        'eventClipPaths': eventClipPaths,
         'eventClipThumbs': eventClipThumbs,
         'eventClipGifs': eventClipGifs,
+        'shortVideoPath': shortVideoPath,
+        'shortVideoBytes': shortVideoBytes,
+        'shortProgress': shortProgress,  // include in JSON if needed
         'uploadedAt': uploadedAt.toIso8601String(),
       };
 }

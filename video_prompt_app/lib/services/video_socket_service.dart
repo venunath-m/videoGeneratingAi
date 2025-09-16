@@ -1,6 +1,5 @@
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:flutter/foundation.dart';
-import '../models/video_model.dart';
 import 'video_service.dart';
 
 class VideoSocketService extends ChangeNotifier {
@@ -22,7 +21,7 @@ class VideoSocketService extends ChangeNotifier {
 
     socket.onConnect((_) => print("✅ Connected to server"));
 
-    // Listen for event generation updates
+    // ✅ Event generated updates
     socket.on("event-generated", (data) {
       current = data['current'] ?? 0;
       total = data['total'] ?? 0;
@@ -37,15 +36,15 @@ class VideoSocketService extends ChangeNotifier {
         // Store clip path
         video.eventClipPaths ??= [];
         video.eventClipPaths!.add(clipPath);
-        clips.add(clipPath); // for live list
+        clips.add(clipPath);
 
-        // Store thumbnail path
+        // Store thumbnail
         if (thumbPath.isNotEmpty) {
           video.eventClipThumbs ??= [];
           video.eventClipThumbs!.add(thumbPath);
         }
 
-        // Store GIF path
+        // Store GIF
         if (gifPath.isNotEmpty) {
           video.eventClipGifs ??= [];
           video.eventClipGifs!.add(gifPath);
@@ -53,6 +52,13 @@ class VideoSocketService extends ChangeNotifier {
       }
 
       notifyListeners();
+    });
+
+    // ✅ Event extraction complete
+    socket.on("event-complete", (data) {
+      print("✅ Event extraction complete");
+      // Optionally, you can do more here:
+      // e.g., notifyListeners(), update UI, or show a SnackBar
     });
 
     socket.onDisconnect((_) => print("❌ Disconnected from server"));

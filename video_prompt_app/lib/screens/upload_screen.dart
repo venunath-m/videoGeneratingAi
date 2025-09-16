@@ -23,7 +23,7 @@ class _UploadScreenState extends State<UploadScreen> {
   final VideoService _videoService = VideoService();
   late final VideoSocketService _socketService;
   final TextEditingController _promptController = TextEditingController();
-  bool _autoPreviewLatest = true; // default ON
+  bool _autoPreviewLatest = true;
   VideoPlayerController? _videoPlayerController;
   String? _previewName;
   double _progress = 0.0;
@@ -46,45 +46,40 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   void _updateProgress() {
-  setState(() {
-    _progress = _socketService.progress;
-  });
+    setState(() {
+      _progress = _socketService.progress;
+    });
 
-  if (_progress >= 1.0 &&
-      _videoService.videos.isNotEmpty &&
-      _videoService.videos.last.eventClipPaths != null &&
-      _videoService.videos.last.eventClipPaths!.isNotEmpty) {
+    if (_videoService.videos.isEmpty) return;
+
     final video = _videoService.videos.last;
-    final clips = video.eventClipPaths!;
+    final clips = video.eventClipPaths ?? [];
     final thumbs = video.eventClipThumbs ?? [];
     final gifs = video.eventClipGifs ?? [];
-    final latestIndex = clips.length - 1;
 
+    if (clips.isEmpty) return;
+
+    final latestIndex = clips.length - 1;
     final latestClip = clips[latestIndex];
     final latestGif = latestIndex < gifs.length ? gifs[latestIndex] : null;
-    final latestThumb = latestIndex < thumbs.length ? thumbs[latestIndex] : null;
+    final latestThumb = latestIndex < thumbs.length
+        ? thumbs[latestIndex]
+        : null;
 
-    final count = clips.length;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text("$count event clips generated!")),
-    );
-
-    // 👇 Only preview automatically if toggle is ON
     if (_autoPreviewLatest) {
       if (latestGif != null && latestGif.isNotEmpty) {
-        // Preview GIF if exists
-        _startPreview(path: latestGif, name: "${video.name} - GIF Clip $count");
+        _startPreview(
+          path: latestGif,
+          name: "${video.name} - GIF Clip ${latestIndex + 1}",
+        );
       } else if (latestClip.isNotEmpty) {
-        // Otherwise preview video clip
-        _startPreview(path: latestClip, name: "${video.name} - Event Clip $count");
-      } else if (latestThumb != null && latestThumb.isNotEmpty) {
-        // Fallback: preview thumbnail as static image (optional)
-        // You can implement _startPreviewImage(latestThumb) if needed
+        _startPreview(
+          path: latestClip,
+          name: "${video.name} - Event Clip ${latestIndex + 1}",
+        );
       }
     }
   }
-}
-
 
   Future<String?> _askClipPrompt() async {
     String? clipPrompt;
@@ -118,42 +113,20 @@ class _UploadScreenState extends State<UploadScreen> {
     return clipPrompt;
   }
 
-  void _extractEvents() {
-  if (_videoService.videos.isEmpty) return;
-  final video = _videoService.videos.last;
-  if ((video.path ?? "").isEmpty && (video.bytes ?? Uint8List(0)).isEmpty) return;
-
-  setState(() {
-    _progress = 0.01;
-  });
-
-  // Reset SocketService state
-  _socketService.clips.clear();
-  _socketService.current = 0;
-  _socketService.total = 0;
-
-  _socketService.extractEvents(video.path ?? "");
-}
-
-
   void _downloadFile(String path, String fileName) {
     final bytes = _videoService.getBytesFromPath(path);
-
     if (bytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text("Cannot download, file not found.")),
       );
       return;
     }
-
     if (kIsWeb) {
       final blob = html.Blob([bytes], 'video/mp4');
       final url = html.Url.createObjectUrlFromBlob(blob);
-
       final anchor = html.AnchorElement(href: url)
         ..setAttribute("download", fileName)
         ..click();
-
       html.Url.revokeObjectUrl(url);
     } else {
       final savePath = "${Directory.systemTemp.path}/$fileName";
@@ -165,65 +138,82 @@ class _UploadScreenState extends State<UploadScreen> {
   }
 
   void _pickVideo() async {
-  final result = await FilePicker.platform.pickFiles(type: FileType.video);
+    final result = await FilePicker.platform.pickFiles(type: FileType.video);
+    if (result != null && result.files.isNotEmpty) {
+      final pickedFile = result.files.single;
+      final prompt = _promptController.text.trim();
 
-  if (result != null && result.files.isNotEmpty) {
-    final pickedFile = result.files.single;
-    final prompt = _promptController.text.trim();
-
-    VideoModel video;
-    if (kIsWeb) {
-      video = VideoModel(
-        bytes: pickedFile.bytes,
-        name: pickedFile.name,
-        prompt: prompt,
-        uploadedAt: DateTime.now(),
-      );
-    } else {
-      video = VideoModel(
-        path: pickedFile.path,
-        name: pickedFile.name,
-        prompt: prompt,
-        uploadedAt: DateTime.now(),
-      );
-    }
-
-    _videoService.addVideo(video);
-    _promptController.clear();
-
-    // Ask for optional clip prompt
-    final clipPrompt = await _askClipPrompt();
-    video.clipPrompt = clipPrompt;
-
-    // Generate preview clip (if not web)
-    if (!kIsWeb && video.path != null) {
-      final tempClipPath = "${Directory.systemTemp.path}/clip_preview.mp4";
-      final clip = await _videoProcessor.generateClip(
-        inputPath: video.path!,
-        outputPath: tempClipPath,
-        start: const Duration(seconds: 0),
-        duration: const Duration(seconds: 10),
-      );
-
-      if (clip != null) {
-        video.clipPath = clip.path;
-        _startPreview(path: clip.path, name: "Clip Preview");
+      VideoModel video;
+      if (kIsWeb) {
+        video = VideoModel(
+          bytes: pickedFile.bytes,
+          name: pickedFile.name,
+          prompt: prompt,
+          uploadedAt: DateTime.now(),
+        );
       } else {
-        _startPreview(path: video.path!, name: video.name);
+        video = VideoModel(
+          path: pickedFile.path,
+          name: pickedFile.name,
+          prompt: prompt,
+          uploadedAt: DateTime.now(),
+        );
       }
-    } else {
-      _startPreview(bytes: video.bytes, name: video.name);
+
+      _videoService.addVideo(video);
+      _promptController.clear();
+
+      final clipPrompt = await _askClipPrompt();
+      video.clipPrompt = clipPrompt;
+
+      if (!kIsWeb && video.path != null) {
+        final tempClipPath = "${Directory.systemTemp.path}/clip_preview.mp4";
+        final clip = await _videoProcessor.generateClip(
+          inputPath: video.path!,
+          outputPath: tempClipPath,
+          start: const Duration(seconds: 0),
+          duration: const Duration(seconds: 10),
+        );
+        if (clip != null) {
+          video.clipPath = clip.path;
+          _startPreview(path: clip.path, name: "Clip Preview");
+        } else {
+          _startPreview(path: video.path!, name: video.name);
+        }
+      } else {
+        _startPreview(bytes: video.bytes, name: video.name);
+      }
     }
   }
-}
-
 
   void _startPreview({String? path, Uint8List? bytes, String? name}) {
-  _videoPlayerController?.dispose();
+    _videoPlayerController?.dispose();
 
-  if (path != null) {
-    if (kIsWeb) {
-      final url = html.Url.createObjectUrlFromBlob(html.Blob([bytes ?? File(path).readAsBytesSync()]));
+    if (path != null) {
+      if (kIsWeb) {
+        final url = html.Url.createObjectUrlFromBlob(
+          html.Blob([bytes ?? File(path).readAsBytesSync()]),
+        );
+        _videoPlayerController = VideoPlayerController.network(url)
+          ..initialize().then((_) {
+            setState(() {
+              _previewName = name;
+              _videoPlayerController!.play();
+              _videoPlayerController!.setLooping(true);
+            });
+          });
+      } else {
+        _videoPlayerController = VideoPlayerController.file(File(path))
+          ..initialize().then((_) {
+            setState(() {
+              _previewName = name;
+              _videoPlayerController!.play();
+              _videoPlayerController!.setLooping(true);
+            });
+          });
+      }
+    } else if (bytes != null) {
+      final url = html.Url.createObjectUrlFromBlob(html.Blob([bytes]));
       _videoPlayerController = VideoPlayerController.network(url)
         ..initialize().then((_) {
           setState(() {
@@ -232,45 +222,61 @@ class _UploadScreenState extends State<UploadScreen> {
             _videoPlayerController!.setLooping(true);
           });
         });
-    } else {
-      _videoPlayerController = VideoPlayerController.file(File(path))
-        ..initialize().then((_) {
-          setState(() {
-            _previewName = name;
-            _videoPlayerController!.play();
-            _videoPlayerController!.setLooping(true);
-          });
-        });
     }
-  } else if (bytes != null) {
-    final url = html.Url.createObjectUrlFromBlob(html.Blob([bytes]));
-    _videoPlayerController = VideoPlayerController.network(url)
-      ..initialize().then((_) {
-        setState(() {
-          _previewName = name;
-          _videoPlayerController!.play();
-          _videoPlayerController!.setLooping(true);
-        });
-      });
+  }
+
+  void _uploadVideos() async {
+  if (_videoService.videos.isEmpty) return;
+
+  final dio = Dio();
+  final formData = FormData();
+
+  for (var video in _videoService.videos) {
+    if (kIsWeb && video.bytes != null) {
+      formData.files.add(MapEntry(
+        'file', // MUST match backend key
+        MultipartFile.fromBytes(video.bytes!, filename: video.name),
+      ));
+    } else if (video.path != null) {
+      formData.files.add(MapEntry(
+        'file',
+        await MultipartFile.fromFile(video.path!, filename: video.name),
+      ));
+    }
+  }
+
+  try {
+    final response = await dio.post(
+      'http://localhost:3000/api/videos/upload',
+      data: formData,
+      options: Options(headers: {'Content-Type': 'multipart/form-data'}),
+    );
+
+    if (response.statusCode == 200) {
+      final data = response.data;
+      final outputs = data['outputs'];
+
+      // Save paths to the merged video
+      final mergedVideo = _videoService.videos.first;
+      mergedVideo.clipPath = outputs['clip'];
+      mergedVideo.reelPath = outputs['reel'];
+      mergedVideo.youtubeClipPath = outputs['youtubeStyle'];
+      mergedVideo.thumbnailPath = outputs['thumbnail'];
+      mergedVideo.gifPath = outputs['gifPreview'];
+
+      if (outputs['resolutions'] != null) {
+        mergedVideo.resolutionPaths = List<String>.from(outputs['resolutions']);
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text("All videos uploaded & merged successfully!")),
+      );
+    }
+  } catch (e) {
+    print("🚨 Error uploading videos: $e");
   }
 }
 
-
-  void _uploadVideos() async {
-    final total = _videoService.videos.length;
-    for (int i = 0; i < total; i++) {
-      final video = _videoService.videos[i];
-      await _videoService.uploadVideo(video);
-
-      setState(() {
-        _progress = (i + 1) / total;
-      });
-    }
-
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text("All videos uploaded!")));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -368,19 +374,34 @@ class _UploadScreenState extends State<UploadScreen> {
                             });
                           }
                         }
-                        if (video.eventClipPaths != null) {
+                        if (video.eventClipPaths != null &&
+                            video.eventClipPaths!.isNotEmpty) {
                           for (
                             var i = 0;
                             i < video.eventClipPaths!.length;
                             i++
                           ) {
+                            final clipPath = video.eventClipPaths![i];
+                            final thumb =
+                                (video.eventClipThumbs != null &&
+                                    i < video.eventClipThumbs!.length)
+                                ? video.eventClipThumbs![i]
+                                : null;
+                            final gif =
+                                (video.eventClipGifs != null &&
+                                    i < video.eventClipGifs!.length)
+                                ? video.eventClipGifs![i]
+                                : null;
+
                             outputs.add({
                               'name': 'Event Clip ${i + 1}',
-                              'path': video.eventClipPaths![i],
+                              'path': clipPath,
+                              'thumb': thumb,
+                              'gif': gif,
                               'color': Colors.redAccent,
                             });
                           }
-                        }
+                        } // ✅ you missed this curly brace
 
                         return Card(
                           shape: RoundedRectangleBorder(
@@ -481,91 +502,129 @@ class _UploadScreenState extends State<UploadScreen> {
                         Switch(
                           value: _autoPreviewLatest,
                           activeColor: Colors.orange,
-                          onChanged: (val) {
-                            setState(() {
-                              _autoPreviewLatest = val;
-                            });
-                          },
+                          onChanged: (val) =>
+                              setState(() => _autoPreviewLatest = val),
                         ),
                         const Text("Auto-preview latest clip"),
                       ],
                     ),
                     const SizedBox(height: 12),
-
-                    ElevatedButton.icon(
-                      onPressed: _extractEvents,
-                      icon: const Icon(Icons.local_movies),
-                      label: const Text("Extract Main Events"),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.orange,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 24,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_progress > 0) ...[
-                      const Text(
-                        "Extracting events...",
-                        style: TextStyle(fontWeight: FontWeight.bold),
-                      ),
-                      const SizedBox(height: 6),
-                      Stack(
-                        alignment: Alignment.center,
+                    if (_progress > 0)
+                      Column(
                         children: [
-                          LinearProgressIndicator(
-                            value: _progress,
-                            minHeight: 16,
-                            backgroundColor: Colors.grey[300],
-                            valueColor: const AlwaysStoppedAnimation<Color>(
-                              Colors.orange,
-                            ),
+                          const Text(
+                            "Extracting events...",
+                            style: TextStyle(fontWeight: FontWeight.bold),
                           ),
-                          Text(
-                            "${(_progress * 100).toStringAsFixed(0)}%",
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              color: Colors.white,
-                            ),
+                          const SizedBox(height: 6),
+                          Stack(
+                            alignment: Alignment.center,
+                            children: [
+                              LinearProgressIndicator(
+                                value: _progress,
+                                minHeight: 16,
+                                backgroundColor: Colors.grey[300],
+                                valueColor: const AlwaysStoppedAnimation<Color>(
+                                  Colors.orange,
+                                ),
+                              ),
+                              Text(
+                                "${(_progress * 100).toStringAsFixed(0)}%",
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
                           ),
+                          const SizedBox(height: 12),
+                          if (_socketService.clips.isNotEmpty)
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  "Generated Clips:",
+                                  style: TextStyle(fontWeight: FontWeight.bold),
+                                ),
+                                const SizedBox(height: 8),
+                                ..._socketService.clips.asMap().entries.map((
+                                  entry,
+                                ) {
+                                  final index = entry.key;
+                                  final clipPath = entry.value;
+                                  final video = _videoService.videos.last;
+                                  final thumb =
+                                      (video.eventClipThumbs != null &&
+                                          index < video.eventClipThumbs!.length)
+                                      ? video.eventClipThumbs![index]
+                                      : null;
+                                  final gif =
+                                      (video.eventClipGifs != null &&
+                                          index < video.eventClipGifs!.length)
+                                      ? video.eventClipGifs![index]
+                                      : null;
+                                  final displayName = "Clip ${index + 1}";
+                                  return Card(
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    margin: const EdgeInsets.symmetric(
+                                      vertical: 4,
+                                    ),
+                                    child: ListTile(
+                                      leading: gif != null
+                                          ? Image.network(
+                                              gif,
+                                              width: 50,
+                                              height: 50,
+                                              fit: BoxFit.cover,
+                                            )
+                                          : thumb != null
+                                          ? Image.network(
+                                              thumb,
+                                              width: 50,
+                                              height: 50,
+                                              fit: BoxFit.cover,
+                                            )
+                                          : const Icon(
+                                              Icons.movie,
+                                              color: Colors.redAccent,
+                                              size: 40,
+                                            ),
+                                      title: Text(displayName),
+                                      trailing: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.play_arrow,
+                                              color: Colors.green,
+                                            ),
+                                            onPressed: () => _startPreview(
+                                              path: gif ?? clipPath,
+                                              name:
+                                                  "${video.name} - $displayName",
+                                            ),
+                                          ),
+                                          IconButton(
+                                            icon: const Icon(
+                                              Icons.download,
+                                              color: Colors.indigo,
+                                            ),
+                                            onPressed: () => _downloadFile(
+                                              clipPath,
+                                              "${video.name}_$displayName",
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                }).toList(),
+                              ],
+                            ),
                         ],
                       ),
-                      const SizedBox(height: 12),
-
-                      // 👇 Live list of event clips
-                      if (_socketService.clips.isNotEmpty)
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              "Generated Clips:",
-                              style: TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                            const SizedBox(height: 8),
-                            ..._socketService.clips.map((clipPath) {
-                              final fileName = clipPath.split('/').last;
-                              return ListTile(
-                                leading: const Icon(
-                                  Icons.movie,
-                                  color: Colors.redAccent,
-                                ),
-                                title: Text(fileName),
-                                trailing: IconButton(
-                                  icon: const Icon(
-                                    Icons.play_arrow,
-                                    color: Colors.green,
-                                  ),
-                                  onPressed: () => _startPreview(
-                                    path: clipPath,
-                                    name: fileName,
-                                  ),
-                                ),
-                              );
-                            }),
-                          ],
-                        ),
-                    ],
                   ],
                 ),
               ),
