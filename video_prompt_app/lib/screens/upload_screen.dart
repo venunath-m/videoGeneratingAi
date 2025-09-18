@@ -9,6 +9,7 @@ import '../models/video_model.dart';
 import '../services/video_processing_service.dart';
 import '../services/video_service.dart';
 import '../services/video_socket_service.dart';
+import 'package:video_prompt_app/screens/playful_video_page.dart';
 import 'dart:html' as html;
 
 class UploadScreen extends StatefulWidget {
@@ -166,23 +167,24 @@ class _UploadScreenState extends State<UploadScreen> {
       final clipPrompt = await _askClipPrompt();
       video.clipPrompt = clipPrompt;
 
-      if (!kIsWeb && video.path != null) {
-        final tempClipPath = "${Directory.systemTemp.path}/clip_preview.mp4";
-        final clip = await _videoProcessor.generateClip(
-          inputPath: video.path!,
-          outputPath: tempClipPath,
-          start: const Duration(seconds: 0),
-          duration: const Duration(seconds: 10),
-        );
-        if (clip != null) {
-          video.clipPath = clip.path;
-          _startPreview(path: clip.path, name: "Clip Preview");
-        } else {
-          _startPreview(path: video.path!, name: video.name);
-        }
-      } else {
-        _startPreview(bytes: video.bytes, name: video.name);
-      }
+      if (!kIsWeb && video.path != null && File(video.path!).existsSync()) {
+  final tempClipPath = "${Directory.systemTemp.path}/clip_preview.mp4";
+  final clip = await _videoProcessor.generateClip(
+    inputPath: video.path!,
+    outputPath: tempClipPath,
+    start: const Duration(seconds: 0),
+    duration: const Duration(seconds: 10),
+  );
+  if (clip != null && clip.existsSync()) {
+    video.clipPath = clip.path;
+    _startPreview(path: clip.path, name: "Clip Preview");
+  } else {
+    _startPreview(path: video.path!, name: video.name);
+  }
+} else {
+  _startPreview(bytes: video.bytes, name: video.name);
+}
+
     }
   }
 
@@ -229,53 +231,88 @@ class _UploadScreenState extends State<UploadScreen> {
   if (_videoService.videos.isEmpty) return;
 
   final dio = Dio();
-  final formData = FormData();
+  final totalVideos = _videoService.videos.length;
+  double overallProgress = 0;
 
+  // Build single FormData for all videos
+  final formData = FormData();
   for (var video in _videoService.videos) {
     if (kIsWeb && video.bytes != null) {
       formData.files.add(MapEntry(
-        'file', // MUST match backend key
+        'file',
         MultipartFile.fromBytes(video.bytes!, filename: video.name),
       ));
-    } else if (video.path != null) {
+    } else if (video.path != null && File(video.path!).existsSync()) {
       formData.files.add(MapEntry(
         'file',
         await MultipartFile.fromFile(video.path!, filename: video.name),
       ));
+    } else {
+      print("⚠️ Skipping ${video.name}: no valid file found");
     }
   }
+
+  if (formData.files.isEmpty) return;
 
   try {
     final response = await dio.post(
       'http://localhost:3000/api/videos/upload',
       data: formData,
-      options: Options(headers: {'Content-Type': 'multipart/form-data'}),
+      options: Options(
+        headers: {'Content-Type': 'multipart/form-data'},
+      ),
+      onSendProgress: (sent, total) {
+        setState(() {
+          overallProgress = total > 0 ? sent / total : 0;
+          _progress = overallProgress;
+        });
+      },
     );
 
     if (response.statusCode == 200) {
       final data = response.data;
-      final outputs = data['outputs'];
 
-      // Save paths to the merged video
-      final mergedVideo = _videoService.videos.first;
-      mergedVideo.clipPath = outputs['clip'];
-      mergedVideo.reelPath = outputs['reel'];
-      mergedVideo.youtubeClipPath = outputs['youtubeStyle'];
-      mergedVideo.thumbnailPath = outputs['thumbnail'];
-      mergedVideo.gifPath = outputs['gifPreview'];
+      for (var video in _videoService.videos) {
+        video.clipPath = data['original']?[0] ?? video.path;
+        video.reelPath = data['highlight'] ?? video.path;
 
-      if (outputs['resolutions'] != null) {
-        mergedVideo.resolutionPaths = List<String>.from(outputs['resolutions']);
+        if (kIsWeb) {
+          video.clipBytes = await _fetchBytesSafe(dio, video.clipPath!);
+          video.reelBytes = await _fetchBytesSafe(dio, video.reelPath!);
+        }
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("All videos uploaded & merged successfully!")),
+        SnackBar(content: Text("All videos uploaded successfully!")),
+      );
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text("Upload failed: ${response.statusCode}")),
       );
     }
   } catch (e) {
     print("🚨 Error uploading videos: $e");
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text("Error uploading videos: $e")),
+    );
+  } finally {
+    setState(() => _progress = 0);
   }
 }
+
+/// Helper for web: fetch bytes safely
+Future<Uint8List?> _fetchBytesSafe(Dio dio, String url) async {
+  if (url.isEmpty) return null;
+  try {
+    final resp = await dio.get<List<int>>(url,
+        options: Options(responseType: ResponseType.bytes));
+    return Uint8List.fromList(resp.data!);
+  } catch (e) {
+    print("⚠️ Failed to fetch bytes for $url: $e");
+    return null;
+  }
+}
+
 
 
   @override
@@ -289,16 +326,25 @@ class _UploadScreenState extends State<UploadScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            TextField(
-              controller: _promptController,
-              decoration: InputDecoration(
-                labelText: "Enter Prompt",
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                prefixIcon: const Icon(Icons.text_snippet),
-              ),
-            ),
+            ElevatedButton.icon(
+  style: ElevatedButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(12),
+    ),
+    backgroundColor: Colors.deepPurpleAccent,
+  ),
+  onPressed: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PlayfulVideoPage()),
+    );
+  },
+  icon: const Icon(Icons.movie_creation),
+  label: const Text("Go to Playful Video Generator"),
+),
+const SizedBox(height: 16),
+
             const SizedBox(height: 16),
             ElevatedButton.icon(
               style: ElevatedButton.styleFrom(

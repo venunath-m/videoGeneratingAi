@@ -39,6 +39,9 @@ class VideoModel {
   String? shortVideoPath;       // server path
   Uint8List? shortVideoBytes;
 
+  String? highlightTrimmedPath;
+Uint8List? highlightTrimmedBytes;
+
   // ------------------- NEW: SHORT PROGRESS -------------------
   Map<String, double>? shortProgress; // key = short index or name, value = progress %
 
@@ -69,6 +72,8 @@ class VideoModel {
     this.eventClipGifs,
     this.shortVideoPath,
     this.shortVideoBytes,
+    this.highlightTrimmedPath,
+    this.highlightTrimmedBytes,
     this.shortProgress,      // add here
     required this.uploadedAt,
   });
@@ -90,6 +95,7 @@ class VideoModel {
         'eventClipGifs': eventClipGifs,
         'shortVideoPath': shortVideoPath,
         'shortVideoBytes': shortVideoBytes,
+        'highlightTrimmedPath': highlightTrimmedPath,
         'shortProgress': shortProgress,  // include in JSON if needed
         'uploadedAt': uploadedAt.toIso8601String(),
       };
